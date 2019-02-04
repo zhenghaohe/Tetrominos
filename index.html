@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>My webGL</title>
+    <style>
+        #container {
+            position: relative; /* required so we can position child elements */
+        }
+        #canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas height="400" width="200" id="canvas"></canvas>
+        <canvas id="back" height="400" width="200"></canvas>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
