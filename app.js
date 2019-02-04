@@ -3,10 +3,14 @@ let program;
 let canvas = document.getElementById('canvas');
 let positionBuffer;
 let colorBuffer;
-const ctx = document.querySelector('#back').getContext('2d');
 let currentTetromino;
 let exisiting = [];
 let exisitingColours = [];
+let dropCounter = 0;
+let dropInterval = 1000; // 1s
+let lastTime = 0;
+
+const ctx = document.querySelector('#back').getContext('2d');
 const coloursMap = {
     'E':[0.845,0.664,0.211, 1.0],
     'B': [0.036,0.722,0.790, 1.0],
@@ -17,6 +21,13 @@ const coloursMap = {
     'C': [0.925,0.184,0.381, 1.0],
     'G': [0.397,0.820,0.508, 1.0],
 };
+const SIZE_PER_POINT = 20; // 20px per point
+const NUMBER_OF_POINT_PER_ROW = this.canvas.width/ SIZE_PER_POINT;
+const UPPER_BOUND = 30;
+const LEFT_BOUND = 10;
+const RIGHT_BOUND = 190;
+const LOWER_BOUND = 390;
+
 function drawGrid(ctx) {
     // draw grid
     ctx.translate(0,0);
@@ -57,6 +68,11 @@ const fShaderSource = `#version 300 es
     }
 `;
 
+
+function checkIfGameEnds() {
+    return currentTetromino.matrix.some(point => point[1]<UPPER_BOUND);
+}
+
 class Tetromino {
     constructor() {
         this.matrix = [];
@@ -85,6 +101,10 @@ class Tetromino {
         if(ableToMove) {
             this.matrix = newMatrix;
         } else if(dir === 'd') {
+            if(checkIfGameEnds()) {
+                resetGameBoard();
+                return;
+            }
             newTetrominos();
             const rowsToRemove = checkForRowsToRemove();
             if(rowsToRemove.length > 0) {
@@ -101,11 +121,14 @@ class Tetromino {
         const matrixStringfied = matrix.map(JSON.stringify);
         const exisitingPoints = exisiting.map(JSON.stringify);
         const isNotCollided = !matrixStringfied.filter(point => exisitingPoints.includes(point)).length;
-        const isNotOutOfBound = matrix.every(point => point[0] >= 10 && point[0] <= 190 && point[1] <= 390);
+        const isNotOutOfBound = matrix.every(point => point[0] >= LEFT_BOUND
+            && point[0] <= RIGHT_BOUND
+            && point[1] <= LOWER_BOUND);
 
         return isNotCollided && isNotOutOfBound;
     }
 }
+
 
 class TetrominoI extends Tetromino {
     constructor() {
@@ -222,6 +245,18 @@ class TetrominoO extends Tetromino {
     }
 }
 
+function newTetrominos() {
+    if(currentTetromino) {
+        exisiting.push(...currentTetromino.matrix);
+        exisitingColours.push(...currentTetromino.getColourMatrix());
+    }
+
+    const tetrominos =
+        [new TetrominoI(), new TetrominoJ(), new TetrominoL(), new TetrominoS(), new TetrominoZ(), new TetrominoO(), new TetrominoT()];
+    currentTetromino = tetrominos[Math.floor(Math.random()*tetrominos.length)];
+}
+
+
 function sendPositionBufferData(points) {
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
@@ -231,7 +266,6 @@ function sendColorBufferData(colour) {
     gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colour), gl.STATIC_DRAW);
 }
-
 
 function getGLContext() {
     gl = canvas.getContext('webgl2');
@@ -280,13 +314,13 @@ function makeShader(src, type) {
 
 const dirMap = {
     'r': function (prevCenter) {
-        return [prevCenter[0]+20, prevCenter[1]+0];
+        return [prevCenter[0]+SIZE_PER_POINT, prevCenter[1]+0];
     },
     'd': function (prevCenter) {
-        return [prevCenter[0], prevCenter[1]+20];
+        return [prevCenter[0], prevCenter[1]+SIZE_PER_POINT];
     },
     'l': function (prevCenter) {
-        return [prevCenter[0]-20, prevCenter[1]];
+        return [prevCenter[0]-SIZE_PER_POINT, prevCenter[1]];
     },
 };
 
@@ -311,6 +345,17 @@ function setBuffer() {
     document.addEventListener('keydown', (ev) => keyDown(ev, positionBuffer), false);
 }
 
+function drawStableTetrominos() {
+    sendPositionBufferData(exisiting.flat());
+    sendColorBufferData(exisitingColours.flat());
+    gl.drawArrays(gl.POINTS, 0, exisiting.length);
+}
+
+function drawCurrenttTetromino() {
+    sendPositionBufferData(currentTetromino.matrix.flat());
+    sendColorBufferData(currentTetromino.getColourMatrix().flat());
+    gl.drawArrays(gl.POINTS, 0, currentTetromino.matrix.length);
+}
 function keyDown(ev) {
     let dir = '';
     switch(ev.key) {
@@ -337,19 +382,6 @@ function keyDown(ev) {
     }
 }
 
-function newTetrominos() {
-    if(currentTetromino) {
-        exisiting.push(...currentTetromino.matrix);
-        exisitingColours.push(...currentTetromino.getColourMatrix());
-    }
-
-    const tetrominos =
-       [new TetrominoI(), new TetrominoJ(), new TetrominoL(), new TetrominoS(), new TetrominoZ(), new TetrominoO(), new TetrominoT()];
-    // const tetrominos =
-    //     [new TetrominoO(), new TetrominoI()];
-    currentTetromino = tetrominos[Math.floor(Math.random()*tetrominos.length)];
-}
-
 function checkForRowsToRemove() {
     const countMap = {};
     exisiting.forEach(point => {
@@ -357,7 +389,7 @@ function checkForRowsToRemove() {
     });
 
     const rowsToRemove = Object.keys(countMap).filter((row) => {
-        return countMap[row] === 10;
+        return countMap[row] === NUMBER_OF_POINT_PER_ROW;
     });
 
     return rowsToRemove;
@@ -367,7 +399,7 @@ function cleanGameBoard(rowsToRemove) {
    const indicesForColoursToBeCleaned = exisiting
        .map((point, index) => rowsToRemove.includes(point[1].toString()) && index)
        .filter(point => typeof point === 'number');
-    const rows = rowsToRemove.length * 20;
+    const rows = rowsToRemove.length * SIZE_PER_POINT;
 
     exisitingColours = exisitingColours.filter(
         (_, index) => indicesForColoursToBeCleaned.indexOf(index) === -1
@@ -383,6 +415,12 @@ function cleanGameBoard(rowsToRemove) {
     });
 }
 
+function resetGameBoard() {
+    exisiting = [];
+    exisitingColours = [];
+    currentTetromino = null;
+    newTetrominos();
+}
 
 window.onload = function() {
     drawGrid(ctx);
@@ -393,21 +431,14 @@ window.onload = function() {
     update();
 };
 
-let dropCounter = 0;
-let dropInterval = 1000; // 1s
-
-let lastTime = 0;
 function update(time = 0) {
-
     const deltaTime = time - lastTime; // 16ms
-
     dropCounter += deltaTime;
-
     if (dropCounter > dropInterval) {
        currentTetromino.move('d');
     }
-
     lastTime = time;
+
     gl.clear(gl.COLOR_BUFFER_BIT );
     exisiting.length && drawStableTetrominos();
     drawCurrenttTetromino();
@@ -417,14 +448,3 @@ function update(time = 0) {
     requestAnimationFrame(update);
 }
 
-function drawStableTetrominos() {
-    sendPositionBufferData(exisiting.flat());
-    sendColorBufferData(exisitingColours.flat());
-    gl.drawArrays(gl.POINTS, 0, exisiting.length);
-}
-
-function drawCurrenttTetromino() {
-    sendPositionBufferData(currentTetromino.matrix.flat());
-    sendColorBufferData(currentTetromino.getColourMatrix().flat());
-    gl.drawArrays(gl.POINTS, 0, currentTetromino.matrix.length);
-}
